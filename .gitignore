@@ -1,0 +1,12 @@
+__pycache__/
+.vscode/
+.env
+/*.db
+/*cache.json
+.DS_Store
+*.crt
+*.csr
+*.ext
+*.key
+*.pem
+*.srl

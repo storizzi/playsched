@@ -1,0 +1,384 @@
+/* static/css/style.css */
+
+/* --- General Styles --- */
+body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    margin: 20px;
+    background-color: #f8f8f8; /* Slightly off-white background */
+    color: #333; /* Darker text for better readability */
+}
+
+h1, h2, h3 {
+    color: #1DB954; /* Spotify Green */
+    margin-bottom: 0.8em;
+}
+h1 { font-size: 2em; }
+h2 { font-size: 1.5em; margin-top: 1.5em;}
+h3 { font-size: 1.2em; }
+
+ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+/* --- Buttons --- */
+button {
+    padding: 8px 15px;
+    margin: 5px;
+    cursor: pointer;
+    background-color: #1DB954;
+    color: white;
+    border: none;
+    border-radius: 20px; /* Pill shape */
+    font-size: 0.9em;
+    transition: background-color 0.2s ease; /* Smooth hover */
+}
+
+button:hover {
+    background-color: #1ed760; /* Slightly lighter green */
+}
+
+button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+/* Specific Button Styles */
+
+#logout-button {
+    background-color: #aaa;
+    font-size: 0.8em;
+    padding: 5px 10px;
+    margin-left: 10px;
+    vertical-align: middle; /* Align better with text */
+}
+#logout-button:hover {
+     background-color: #ccc;
+}
+
+.delete-schedule-btn {
+    background-color: #e74c3c; /* Softer Red */
+}
+.delete-schedule-btn:hover {
+    background-color: #c0392b;
+}
+
+.edit-schedule-btn {
+    background-color: #f39c12; /* Softer Orange */
+}
+.edit-schedule-btn:hover {
+    background-color: #e68a00;
+}
+
+/* Style for the new duplicate button */
+.duplicate-schedule-btn {
+   background-color: #95a5a6; /* Grey */
+   color: white;
+}
+.duplicate-schedule-btn:hover {
+   background-color: #7f8c8d; /* Darker Grey */
+}
+
+.toggle-active-btn {
+     background-color: #3498db; /* Blue */
+}
+.toggle-active-btn:hover {
+     background-color: #2980b9;
+}
+
+.play-now-btn {
+    background-color: #2ecc71; /* Different Green */
+}
+.play-now-btn:hover {
+     background-color: #27ae60;
+}
+
+/* --- Tabs --- */
+.tab-container {
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 20px;
+}
+
+.tab-button {
+    padding: 10px 15px;
+    border: 1px solid transparent; /* Add border for structure */
+    border-bottom: none;
+    background-color: #eee;
+    cursor: pointer;
+    margin-right: 3px;
+    margin-bottom: -1px; /* Overlap container border */
+    border-radius: 5px 5px 0 0;
+    font-size: 0.95em;
+    color: #555;
+}
+
+.tab-button.active {
+    background-color: white; /* Match content background */
+    border-color: #ddd; /* Connect borders */
+    font-weight: bold;
+    color: #1DB954;
+}
+
+.tab-content {
+    display: none; /* Hide tabs by default */
+    padding: 20px;
+    border: 1px solid #ddd;
+    border-top: none;
+    background-color: white; /* White background for content */
+    border-radius: 0 0 5px 5px; /* Match tab radius */
+}
+
+.tab-content.active {
+    display: block; /* Show active tab */
+}
+
+/* --- Playlist List --- */
+#playlist-list li {
+    padding: 8px 12px;
+    margin-bottom: 5px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    background-color: white;
+    display: flex; /* Align items */
+    justify-content: space-between; /* Push button to right */
+    align-items: center;
+}
+#playlist-list button.add-schedule-btn {
+    margin: 0; /* Remove default button margin */
+    padding: 4px 10px; /* Smaller padding */
+    font-size: 0.8em;
+}
+
+/* --- Schedule List --- */
+#schedule-list li {
+    border: 1px solid #e0e0e0; /* Softer border */
+    margin-bottom: 15px;
+    padding: 15px;
+    border-radius: 5px;
+    background-color: white;
+    line-height: 1.5; /* Improve readability */
+}
+
+.schedule-header {
+    margin-bottom: 8px;
+}
+.schedule-header strong {
+    /* Playlist Name */
+    font-size: 1.2em;
+    color: #333;
+    display: block; /* Ensure it takes its own line if needed */
+    margin-bottom: 2px;
+}
+.schedule-device {
+    /* "on Device Name" */
+    font-size: 0.9em;
+    color: #555;
+}
+
+.schedule-details span {
+    /* Time, Days, Volume */
+    margin-right: 15px; /* Space between details */
+    font-size: 0.9em;
+    color: #444;
+    white-space: nowrap; /* Prevent wrapping mid-detail */
+}
+.schedule-details {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f0f0f0; /* Faint separator */
+}
+
+.schedule-status-line {
+    margin-bottom: 4px; /* Space between status/next run lines */
+    font-size: 0.9em;
+}
+
+.schedule-info-label {
+    /* "Status:", "Next Run:" */
+    color: #666;
+    display: inline-block; /* Allow inline display */
+    min-width: 70px; /* Align values slightly */
+}
+
+/* Specific Status Styles - RENAMED */
+.schedule-status {
+    font-weight: bold;
+    padding: 2px 5px; /* Add a little padding */
+    border-radius: 3px;
+    display: inline-block; /* Allow inline display */
+}
+.schedule-status.status-active { /* Renamed from .active */
+    color: #27ae60; /* Darker Green */
+    background-color: #eafaf1; /* Light green background */
+}
+.schedule-status.status-paused { /* Renamed from .paused */
+    color: #d35400; /* Darker Orange */
+     background-color: #fef5e7; /* Light orange background */
+}
+.schedule-next-run {
+     color: #2980b9; /* Blue */
+     font-weight: bold;
+}
+
+
+/* Schedule Action Buttons Container */
+.schedule-actions {
+    margin-top: 12px;
+    border-top: 1px dashed #eee;
+    padding-top: 12px;
+}
+/* Styling for buttons within the actions div */
+.schedule-actions button {
+     font-size: 0.8em;
+     margin-top: 0; /* Remove top margin inherited from global button */
+     margin-right: 5px;
+     padding: 4px 10px; /* Slightly smaller */
+     border-radius: 15px;
+     min-width: 70px; /* Give buttons similar width */
+     text-align: center;
+}
+
+
+/* --- Schedule Form --- */
+#schedule-form-container {
+    border: 1px solid #ccc;
+    padding: 20px;
+    margin-top: 20px;
+    background-color: #fff;
+    border-radius: 5px;
+}
+#schedule-form-container label {
+    display: block; /* Make labels block for better spacing */
+    margin-top: 12px;
+    margin-bottom: 4px;
+    font-weight: bold;
+    font-size: 0.9em;
+}
+#schedule-form-container input[type="time"],
+#schedule-form-container input[type="number"],
+#schedule-form-container input[type="text"],
+input[type="search"],
+#schedule-form-container select {
+     padding: 8px; /* More padding */
+     margin-bottom: 8px;
+     border: 1px solid #ccc;
+     border-radius: 4px;
+     width: 95%; /* Make inputs wider */
+     max-width: 400px; /* But not too wide */
+}
+input[type="search"] {
+    margin-top:8px;
+}
+#schedule-form-container select {
+     width: auto; /* Selects often don't need full width */
+     min-width: 200px;
+}
+
+#schedule-form-container div {
+    margin-bottom: 15px; /* More space between form groups */
+}
+/* Style day checkboxes */
+#schedule-form-container input[type="checkbox"] {
+     margin-right: 5px;
+     vertical-align: middle;
+}
+#schedule-form-container label[for^="day-"] { /* Labels next to checkboxes */
+     display: inline-block;
+     margin-right: 10px;
+     font-weight: normal;
+}
+#schedule-form-container .day-selector-actions button {
+     font-size: 0.8em;
+     padding: 3px 8px;
+     margin-left: 5px;
+}
+
+
+/* --- Playlist Controls/Pagination --- */
+.controls { /* Container for refresh button and search */
+     margin-bottom: 15px;
+     display: flex;
+     align-items: center;
+}
+.controls input[type="search"] {
+     padding: 8px;
+     border: 1px solid #ccc;
+     border-radius: 4px;
+     margin-left: 15px;
+}
+
+
+.pagination-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 5px;
+    margin-top: 15px;
+    border-top: 1px solid #eee;
+}
+
+.pagination-controls button {
+    padding: 5px 10px;
+    font-size: 0.9em;
+}
+
+#playlist-page-info {
+    font-size: 0.9em;
+    color: #555;
+}
+
+#schedule-form-container .form-check label {
+    display: inline-block;  /* Override display: block */
+    font-weight: normal;    /* Override general label bold */
+    margin-bottom: 0;       /* Override general label margin */
+    margin-top: 0;          /* Override general label margin */
+    vertical-align: middle; /* Align with checkbox */
+    margin-left: 5px;       /* Space after checkbox */
+}
+
+/* More specific rule for the shuffle checkbox */
+#schedule-form-container .form-check input[type="checkbox"] {
+   width: auto;             /* Override general input width */
+   vertical-align: middle;  /* Align with label */
+   margin-right: 5px;       /* Reset (or set space before label) */
+   /* Reset potentially inherited styles that might cause issues */
+   padding: initial;
+   margin-bottom: 0;
+   margin-top: 0;
+   display: inline-block; /* Ensure checkbox itself is inline */
+}
+
+.header-container {
+    display: flex;          /* Arrange icon and content side-by-side */
+    align-items: center;    /* Vertically align items in the middle */
+    margin-bottom: 25px;    /* Space below the header */
+    padding-bottom: 15px;   /* Space before potential border */
+    border-bottom: 1px solid #eee; /* Optional separator line */
+    gap: 20px;              /* Space between icon and text content */
+}
+
+.header-icon img {
+    display: block;         /* Removes extra space below image */
+    height: 70px;           /* Set desired height for the icon */
+    width: auto;            /* Maintain aspect ratio */
+    max-width: 100%;        /* Prevent overflow if container is too small */
+}
+
+.header-content {
+    flex-grow: 1;           /* Allow text content to take remaining space */
+}
+
+/* Adjust margin for h1 inside the new structure if needed */
+.header-content h1 {
+    margin-bottom: 0.4em; /* Reduce space below h1 */
+    margin-top: 0;      /* Remove potential top margin */
+    font-size: 1.8em;   /* Slightly smaller H1 might fit better */
+}
+
+/* Adjust margin for auth section p tag */
+#auth-section p {
+    margin-top: 5px;
+    margin-bottom: 5px; /* Reduce space around welcome message */
+}

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PlaySched</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" type="image/png" sizes="512x512" href="{{ url_for('static', filename='android-chrome-512x512.png') }}">
+    <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='android-chrome-192x192.png') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32x32.png') }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16x16.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    </head>
+<body>
+    <div class="header-container">
+        {# Div for the icon #}
+        <div class="header-icon">
+            <img src="{{ url_for('static', filename='android-chrome-512x512.png') }}" alt="PlaySched Icon">
+        </div>
+        {# Div for the text content #}
+        <div class="header-content">
+            <h1>PlaySched - Spotify Playlist Scheduler</h1>
+            <div id="auth-section">
+                {% if not logged_in %}
+                    <p>Please log in with Spotify to use the scheduler.</p>
+                    <button id="login-button">Login with Spotify</button>
+                {% else %}
+                    <p>Welcome, {{ display_name }}! <button id="logout-button">Logout</button></p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if logged_in %}
+    <div id="main-app">
+        <div class="tab-container">
+            <button class="tab-button active" data-tab="playlists-tab">My Playlists</button>
+            <button class="tab-button" data-tab="schedules-tab">Scheduled Playlists</button>
+        </div>
+
+        <div id="playlists-tab" class="tab-content active">
+            <h2>My Spotify Playlists</h2>
+            <div class="controls">
+                <button id="refresh-playlists">Refresh Playlists</button>
+                <input type="search" id="playlist-search" placeholder="Filter playlists by name..." style="margin-left: 15px; padding: 5px;">
+            </div>
+            <ul id="playlist-list">
+                <li>Loading playlists...</li>
+            </ul>
+            <div id="playlist-pagination" class="pagination-controls" style="display: none;"> <button id="playlist-prev" disabled>&lt; Previous</button>
+                <span id="playlist-page-info">Page 1 of ?</span>
+                <button id="playlist-next" disabled>Next &gt;</button>
+            </div>
+        </div>
+
+        <div id="schedules-tab" class="tab-content">
+            <h2>Scheduled Playlists</h2>
+            <button id="refresh-schedules">Refresh Schedules</button>
+            <ul id="schedule-list">
+                <li>Loading schedules...</li>
+            </ul>
+        </div>
+
+        <div id="schedule-form-container" style="display: none; border: 1px solid #ccc; padding: 15px; margin-top: 20px;">
+            <h3 id="form-title">Add/Edit Schedule</h3>
+            <form id="schedule-form">
+                <input type="hidden" id="schedule-id"> <div>Playlist: <strong id="form-playlist-name"></strong> (<span id="form-playlist-uri"></span>)</div>
+                <input type="hidden" id="form-input-playlist-uri">
+                <input type="hidden" id="form-input-playlist-name">
+
+
+                <div>
+                    <label for="form-device">Device:</label>
+                    <select id="form-device" required>
+                        <option value="">Loading devices...</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label>Days of Week (Leave blank to play once only):</label><br>
+                    <input type="checkbox" id="day-mon" value="0"> Mon
+                    <input type="checkbox" id="day-tue" value="1"> Tue
+                    <input type="checkbox" id="day-wed" value="2"> Wed
+                    <input type="checkbox" id="day-thu" value="3"> Thu
+                    <input type="checkbox" id="day-fri" value="4"> Fri
+                    <input type="checkbox" id="day-sat" value="5"> Sat
+                    <input type="checkbox" id="day-sun" value="6"> Sun
+                    <button type="button" id="select-all-days">All</button>
+                    <button type="button" id="select-no-days">None (Play Once)</button>
+                </div>
+
+                <div>
+                    <label for="form-start-time">Start Time (HH:MM):</label>
+                    <input type="time" id="form-start-time" required>
+                </div>
+                <div>
+                    <label for="form-stop-time">Stop Time (HH:MM, Optional):</label>
+                    <input type="time" id="form-stop-time">
+                </div>
+                 <div>
+                    <label for="form-volume">Volume (0-100, Optional):</label>
+                    <input type="number" id="form-volume" min="0" max="100">
+                </div>
+                <div>
+                    <label for="form-timezone">Timezone:</label>
+                    <input type="text" id="form-timezone" value="Europe/Paris" required>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" id="form-shuffle" value="true">
+                    <label for="form-shuffle">Play in Shuffle Mode</label>
+                </div>
+
+                <button type="submit" id="save-schedule-button">Save Schedule</button>
+                <button type="button" id="cancel-schedule-button">Cancel</button>
+                <button type="button" id="play-now-form-button" style="margin-left: 20px;">Play Now</button>
+
+            </form>
+        </div>
+
+    </div>
+    {% endif %}
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
