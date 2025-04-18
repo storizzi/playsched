@@ -4,7 +4,7 @@
 
 ![App Icon](static/android-chrome-192x192.png)
 
-[Version History](VERSION.md) - Current Version: v0.1.0 - 18 Apr 2024
+[Version History](VERSION.md) - Current Version: v0.1.0 - 18 Apr 2025
 
 [Roadmap](ROADMAP.md)
 
