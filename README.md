@@ -72,12 +72,12 @@ To allow this application to interact with your Spotify account, you need to reg
 2.  **Log In:** Log in using your existing Spotify account credentials.
 3.  **Create an App:** Click **"Create App"**, fill in the name and description, agree to terms, and click **"Create"**.
 4.  **Get Credentials:** On the app dashboard, copy your **Client ID** and click **"Show client secret"** to copy your **Client Secret**. Keep the secret confidential.
-5.  **Configure Redirect URI:** Click **"Edit Settings"**. Scroll to **"Redirect URIs"**. Add the exact URI(s) your application will use for callbacks. For this project using HTTPS on the default port `9093`, add **both** of these:
+5.  **Configure Redirect URI:** Click **"Edit Settings"**. Scroll to **"Redirect URIs"**. Add the exact URI(s) your application will use for callbacks. For this project using HTTPS on the default port `9093`, add *this*:
     ```
-    [https://127.0.0.1:9093/callback](https://127.0.0.1:9093/callback)
-    https://localhost:9093/callback
+    https://127.0.0.1:9093/callback
     ```
-    *Using both `127.0.0.1` and `localhost` provides flexibility.* Ensure these **exactly match** the `SPOTIPY_REDIRECT_URI` you set in your `.env` file later. Add one URI per line.
+    * Use `127.0.0.1` rather than `localhost` - localhost gives an odd error on callback for some reason.
+    * Ensure this **exactly match** the `SPOTIPY_REDIRECT_URI` you set in your `.env` file later. Add one URI per line.
     * Click **"Save"** at the bottom.
 6.  **Use Credentials:** Copy the Client ID/Secret into your `.env` file.
 
@@ -85,8 +85,8 @@ To allow this application to interact with your Spotify account, you need to reg
 
 1.  **Clone the Repository:**
     ```bash
-    git clone <your-repository-url>
-    cd <repository-directory-name>
+    git clone https://github.com/storizzi/playsched
+    cd playsched
     ```
 
 2.  **Set up a Virtual Environment (Recommended):**
@@ -165,7 +165,7 @@ The application uses environment variables loaded from a `.env` file in the proj
 
 ## HTTPS for Local Development (Handling Spotify Requirement)
 
-Spotify requires `https://` for callback URIs. The Flask development server needs configuration to use HTTPS. You have two options:
+Spotify API now requires `https://` for callback URIs. The Flask development server needs configuration to use HTTPS. You have two options:
 
 **Option 1: Use Custom Certificates (Recommended for No Browser Warnings)**
 
@@ -182,13 +182,13 @@ This involves generating your own Certificate Authority (CA) and a server certif
 2.  **Trust Your CA Certificate (`myCA.pem`):** You *must* do this for the browser to accept your `localhost.crt` without warnings.
     * **Chrome:**
         * Go to Settings -> Privacy and security -> Security -> Manage device certificates.
-        * Alternatively, navigate directly to: `chrome://settings/certificates` (or potentially `chrome://certificate-manager/localcerts/usercerts` as you found).
+        * Alternatively, navigate directly to: `chrome://settings/certificates` (or potentially `chrome://certificate-manager/localcerts/usercerts`).
         * Go to the **"Authorities"** tab.
         * Click **"Import..."**.
         * Select the generated `myCA.pem` file.
         * Check the box **"Trust this certificate for identifying websites"**.
-        * Click OK/Finish. Restart Chrome.
-    * **macOS (Additional Step):**
+        * Click OK/Finish. Typically you don't need to restart Chrome for this to take effect.
+    * **macOS (Additional Step - not essential):**
         * Import `myCA.pem` via Keychain Access (File > Import Items... or double-click the file).
         * Find the imported certificate (e.g., "My Local Development CA") in the relevant keychain (usually 'login').
         * Double-click it, expand the ▶ **Trust** section.
@@ -211,7 +211,7 @@ This is simpler but requires bypassing browser warnings every time.
 1.  **Ensure `pyOpenSSL` is installed:** `pip install pyOpenSSL` (included in `requirements.txt`).
 2.  **Do Not Set Cert/Key in `.env`:** Make sure `FLASK_CERT_FILE` and `FLASK_KEY_FILE` are *not* set or are commented out in your `.env` file.
 3.  **Run Flask:** Start the app as usual (`flask run ...`). The console output will indicate it's using `'adhoc'` SSL.
-4.  **Access & Bypass Warning:** Navigate to `https://localhost:9093` or `https://127.0.0.1:9093`. Your browser **will** show a security warning ("Your connection is not private", etc.). Click "Advanced" or similar, and choose to "Proceed to..." the site.
+4.  **Access & Bypass Warning:** Navigate to `https://127.0.0.1:9093`. Your browser **will** show a security warning ("Your connection is not private", etc.). Click "Advanced" or similar, and choose to "Proceed to..." the site.
 
 **Regardless of the method, ensure your `SPOTIPY_REDIRECT_URI` uses `https://` and matches the hostname you use to access the app (e.g., `https://127.0.0.1:9093/callback`).**
 
