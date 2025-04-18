@@ -161,8 +161,6 @@ The application uses environment variables loaded from a `.env` file in the proj
     # Note: CLI tool uses 'spotify_history.db' by default
     ```
 
-    **Important:** Add `.env` to your `.gitignore` file!
-
 ## HTTPS for Local Development (Handling Spotify Requirement)
 
 Spotify API now requires `https://` for callback URIs. The Flask development server needs configuration to use HTTPS. You have two options:
@@ -222,11 +220,11 @@ This is simpler but requires bypassing browser warnings every time.
 1.  **Activate your virtual environment**.
 2.  **Set Flask App Environment Variable (if needed):**
     ```bash
-    # On macOS/Linux (Corrected Filename)
+    # On macOS/Linux
     export FLASK_APP=playsched.py
-    # On Windows (cmd) (Corrected Filename)
+    # On Windows (cmd)
     set FLASK_APP=playsched.py
-    # On Windows (PowerShell) (Corrected Filename)
+    # On Windows (PowerShell)
     $env:FLASK_APP = "playsched.py"
     ```
 3.  **Run the Flask Development Server:**
