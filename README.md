@@ -131,7 +131,7 @@ The application uses environment variables loaded from a `.env` file in the proj
     SPOTIPY_CLIENT_ID='YOUR_SPOTIFY_CLIENT_ID'
     SPOTIPY_CLIENT_SECRET='YOUR_SPOTIFY_CLIENT_SECRET'
     # Use the HTTPS URI matching your setup and Spotify Dashboard exactly
-    SPOTIPY_REDIRECT_URI='[https://127.0.0.1:9093/callback](https://127.0.0.1:9093/callback)'
+    SPOTIPY_REDIRECT_URI='https://127.0.0.1:9093/callback'
 
     # Flask Web App Configuration (Required)
     SECRET_KEY='YOUR_STRONG_RANDOM_SECRET_KEY' # Generate using: python -c 'import secrets; print(secrets.token_hex(16))'
