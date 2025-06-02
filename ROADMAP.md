@@ -4,6 +4,7 @@ A few ideas for future version - feel free to suggest things yourself! This is s
 
 ## Spotify Related
 
+* Create zsh script and crontab file to use with crontab to (every 2 hours) update spotify played tracks, and (every day) update playlists with changes
 * Shared functionality - Share functionality between command line tool and front-end and create libraries of that shared functionality
 * Play spotify playlists not linked to user
 * Play individual tracks from playlists
@@ -14,6 +15,8 @@ A few ideas for future version - feel free to suggest things yourself! This is s
 
 ## Non Spotify related
 
+* Scan local files and add details to database
+* Compare spotify files with local files - e.g. if want to play local files instead of spotify files when have both or source music outside of spotify
 * Local streaming server mode - play local files and playlists
 * Include scheduling of local playlists
 * Mixed playlist - play from local playlist and from Spotify mixed up
@@ -22,6 +25,10 @@ A few ideas for future version - feel free to suggest things yourself! This is s
 * Include tracks (and maybe playlists) stored in URLs (mayble download / track such playlists)
 * Podcasts - incl. downloading episodes for later playback
 * Include audio from Plex servers (maybe others)
+* Identify metadata for tracks - e.g. from external sources
+* Volume leveling
+* Create playlists / virtual playlists based on factors such as 'eras' / 'genres' / plays / playlist name pattern etc. Allow these to be used for random play based on these factors rather than having a set list of tracks.
+* Identify music / playlists prefer to play at certain times and create 'radio' that brings things in at these times to play
 
 # General functionality
 
