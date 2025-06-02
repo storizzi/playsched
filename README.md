@@ -4,18 +4,18 @@
 
 ![App Icon](static/android-chrome-192x192.png)
 
-[Version History](VERSION.md) - Current Version: v0.1.0 - 18 Apr 2025
+[Version History](VERSION.md) - Current Version: v0.1.1 - 2 Jun 2025
 
 [Roadmap](ROADMAP.md)
 
-A project combining a web application for scheduling Spotify playlist playback and a command-line tool for direct Spotify control and history management.
+A project combining a web application for scheduling Spotify playlist playback and a command-line tool for direct Spotify control, history management, and data synchronization.
 
 This will evolve over time. Currently, it is scratching an itch - I realised that the only reason I am using my Amazon Alexa™️ is for having music playing / stopping at certain times (and on certain days). The UI for doing this is atrocious. So now I get to unplug my Alexa, and use the much better speakers on my laptop using the Spotify App on there, driven by this scheduling app. See the [Roadmap](ROADMAP.md) for a roadmap of what may come in the future. Maybe. If I don't get distracted by other shiny things, now that this specific itch has been scratched.
 
 ## Overview
 
 * **Web Application (`playsched.py`):** Provides a user-friendly web interface to schedule Spotify playlists to play on specific devices at set times. Includes options for recurrence (days of the week), start/stop times, volume, and shuffle mode. Allows managing created schedules (edit, duplicate, pause, delete).
-* **Command-Line Script (`play_spotify_playlist.py`):** Offers direct terminal-based interaction with Spotify for listing devices/playlists, starting playback, and managing a local playback history database.
+* **Command-Line Script (`play_spotify_playlist.py`):** Offers direct terminal-based interaction with Spotify for listing devices/playlists, starting playback, managing a local playback history database, syncing all your playlists and tracks locally, and exporting this data.
 
 ## Features
 
@@ -43,12 +43,19 @@ This will evolve over time. Currently, it is scratching an itch - I realised tha
 ### Command-Line Script (`play_spotify_playlist.py`) Features
 
 * **Device Listing:** Displays available Spotify Connect devices.
-* **Playlist Listing:** Shows your playlists.
+* **Playlist Listing:** Shows your playlists directly from Spotify.
 * **Playback Control:** Start playing a specified playlist on a selected device directly from the command line.
 * **Playback History:**
     * Retrieves your recently played tracks from Spotify.
-    * Stores this history in a local SQLite database (`spotify_history.db`).
+    * Stores this history in a local SQLite database.
     * Lists recently played playlists based on the stored history (with local time conversion).
+* **Full Playlist Sync:**
+    * Fetches all your playlists (created and followed) and their tracks from Spotify.
+    * Stores this comprehensive data in local SQLite tables (`synced_playlists`, `synced_playlist_tracks`).
+    * Marks playlists or tracks as "removed" if they are no longer found in your Spotify library, without deleting them from the database.
+* **Data Export:**
+    * Exports the synced playlists and tracks from the local database.
+    * Supports export to Excel (`.xlsx` with separate sheets for playlists and tracks), CSV (generates two files: `*_playlists.csv` and `*_tracks.csv`), or JSON (`.json` with a structured output).
 
 ![Browse Playlists](img/screenshot-browse-playlists.jpg)
 
@@ -63,29 +70,32 @@ This will evolve over time. Currently, it is scratching an itch - I realised tha
 * **OpenSSL:** Required for generating custom certificates (usually pre-installed on Linux/macOS, downloadable for Windows).
 * **Spotify Account:** A regular or Premium Spotify account.
 * **Spotify Developer App Credentials:** You need to register an application on the Spotify Developer Dashboard to get API keys. See detailed steps below.
+* **For Data Export Feature:** `pandas` and `openpyxl` Python libraries (see Installation section in `requirements.txt`).
 
 ### Setting up a Spotify Developer App
 
 To allow this application to interact with your Spotify account, you need to register it on Spotify's developer platform:
 
-1.  **Go to the Spotify Developer Dashboard:** Navigate to [developer.spotify.com/dashboard](http://developer.spotify.com/dashboard) in your web browser.
+1.  **Go to the Spotify Developer Dashboard:** Navigate to [https://developer.spotify.com/dashboard/](https://developer.spotify.com/dashboard/) in your web browser.
 2.  **Log In:** Log in using your existing Spotify account credentials.
-3.  **Create an App:** Click **"Create App"**, fill in the name and description, agree to terms, and click **"Create"**.
-4.  **Get Credentials:** On the app dashboard, copy your **Client ID** and click **"Show client secret"** to copy your **Client Secret**. Keep the secret confidential.
-5.  **Configure Redirect URI:** Click **"Edit Settings"**. Scroll to **"Redirect URIs"**. Add the exact URI(s) your application will use for callbacks. For this project using HTTPS on the default port `9093`, add *this*:
-    ```
-    https://127.0.0.1:9093/callback
-    ```
-    * Use `127.0.0.1` rather than `localhost` - localhost gives an odd error on callback for some reason.
-    * Ensure this **exactly match** the `SPOTIPY_REDIRECT_URI` you set in your `.env` file later. Add one URI per line.
-    * Click **"Save"** at the bottom.
-6.  **Use Credentials:** Copy the Client ID/Secret into your `.env` file.
+3.  **Create an App:** Click **"Create App"** (or "Create an app"), fill in the name and description, agree to terms, and click **"Create"**.
+4.  **Get Credentials:** On the app dashboard, copy your **Client ID**. Click **"Show client secret"** to view and copy your **Client Secret**. Keep the secret confidential.
+5.  **Configure Settings:** Click **"Edit Settings"** (or find the settings section for your app).
+    * **Website:** You will need to specify a website URL. For local development, you can use the Flask server location of the webapp (e.g., `https://127.0.0.1:9093`).
+    * **Redirect URIs:** Add the exact URI(s) your application will use for callbacks. For this project using HTTPS on the default port `9093`, add this:
+        ```
+        [https://127.0.0.1:9093/callback](https://127.0.0.1:9093/callback)
+        ```
+        * Use `127.0.0.1` rather than `localhost` - localhost can sometimes cause issues with callback validation or browser security policies.
+        * Ensure this **exactly matches** the `SPOTIPY_REDIRECT_URI` you set in your `.env` file later. Add one URI per line.
+    * Click **"Save"** at the bottom of the settings page.
+6.  **Use Credentials:** Copy the Client ID and Client Secret into your `.env` file.
 
 ## Installation
 
 1.  **Clone the Repository:**
     ```bash
-    git clone https://github.com/storizzi/playsched
+    git clone [https://github.com/storizzi/playsched](https://github.com/storizzi/playsched)
     cd playsched
     ```
 
@@ -117,13 +127,13 @@ To allow this application to interact with your Spotify account, you need to reg
     ```bash
     pip install -r requirements.txt
     ```
-    *(This installs Flask, Spotipy, APScheduler, python-dotenv, pytz, and pyOpenSSL).*
+    *(This installs Flask, Spotipy, APScheduler, python-dotenv, pytz, pyOpenSSL, and potentially pandas/openpyxl if included for export features).*
 
 ## Configuration (`.env` File)
 
 The application uses environment variables loaded from a `.env` file in the project root.
 
-1.  Create a file named `.env` in the root directory of the project. There is a sample called .env-sample you can copy as a template.
+1.  Create a file named `.env` in the root directory of the project. There is a sample called `.env-sample` you can copy as a template.
 2.  Add the following variables, replacing the placeholder values with your actual credentials and desired settings:
 
     ```dotenv
@@ -131,7 +141,7 @@ The application uses environment variables loaded from a `.env` file in the proj
     SPOTIPY_CLIENT_ID='YOUR_SPOTIFY_CLIENT_ID'
     SPOTIPY_CLIENT_SECRET='YOUR_SPOTIFY_CLIENT_SECRET'
     # Use the HTTPS URI matching your setup and Spotify Dashboard exactly
-    SPOTIPY_REDIRECT_URI='https://127.0.0.1:9093/callback'
+    SPOTIPY_REDIRECT_URI='[https://127.0.0.1:9093/callback](https://127.0.0.1:9093/callback)'
 
     # Flask Web App Configuration (Required)
     SECRET_KEY='YOUR_STRONG_RANDOM_SECRET_KEY' # Generate using: python -c 'import secrets; print(secrets.token_hex(16))'
@@ -158,7 +168,9 @@ The application uses environment variables loaded from a `.env` file in the proj
     # Optional: Spotify Market Code (Used by CLI)
     # SPOTIPY_MARKET='FR'
 
-    # Note: CLI tool uses 'spotify_history.db' by default
+    # Note: CLI tool database for history and synced playlists
+    # By default, uses SCHEDULE_DB_FILE. Can be overridden by HISTORY_DB_FILE.
+    # HISTORY_DB_FILE=playsched_cli.db
     ```
 
 ## HTTPS for Local Development (Handling Spotify Requirement)
@@ -259,11 +271,11 @@ Use arguments to perform actions:
     ```bash
     python play_spotify_playlist.py --list-devices
     ```
-* List your playlists:
+* List your playlists (from Spotify API):
     ```bash
     python play_spotify_playlist.py --list-playlists
     ```
-* Update local playback history database (`spotify_history.db`):
+* Update local playback history database:
     ```bash
     python play_spotify_playlist.py --update-history
     ```
@@ -271,6 +283,22 @@ Use arguments to perform actions:
     ```bash
     python play_spotify_playlist.py --recent-playlists
     ```
+* **Sync all your playlists and their tracks to the local database:**
+    ```bash
+    python play_spotify_playlist.py --sync-playlists
+    ```
+* **Export synced data to a file (Excel, CSV, or JSON):**
+    ```bash
+    # Export to Excel
+    python play_spotify_playlist.py --export-data my_spotify_data.xlsx
+
+    # Export to CSV (will create my_spotify_data_playlists.csv and my_spotify_data_tracks.csv)
+    python play_spotify_playlist.py --export-data my_spotify_data.csv
+
+    # Export to JSON
+    python play_spotify_playlist.py --export-data my_spotify_data.json
+    ```
+    *Note: The export feature requires `pandas` and `openpyxl` (for Excel). Install with `pip install pandas openpyxl`.*
 * Play a playlist by name on a specific device:
     ```bash
     python play_spotify_playlist.py --device "My Speakers" --playlist "Chill Mix"
@@ -282,7 +310,7 @@ Use arguments to perform actions:
 
 *(See `python play_spotify_playlist.py --help` for all options)*
 
-The play history is stored in the same database as the scheduler by default, but in case you have difficulty connecting to it at the same time as the shceduler is running, you can keep it in a different file using the `HISTORY_DB_FILE` environment variable in the .env file (e.g. `HISTORY_DB_FILE=spotify_history.db`). Future versions will integrate this functionality into the scheduler so that the history is updated periodically automatically, and for additional planned functionality.
+The CLI tool (`play_spotify_playlist.py`) by default uses the same database file as specified by `SCHEDULE_DB_FILE` (e.g., `playsched.db`) for its history and synced playlist data. If you prefer a separate database file for the CLI tool (e.g., if you encounter issues with simultaneous access while the scheduler is running), you can set the `HISTORY_DB_FILE` environment variable in your `.env` file (e.g., `HISTORY_DB_FILE=spotify_cli_data.db`). The `play_spotify_playlist.py` script will then use this separate file. Future versions may further integrate history updates into the main scheduler.
 
 ## Notes & Caveats
 
@@ -290,8 +318,8 @@ The play history is stored in the same database as the scheduler by default, but
 * **Device Availability:** Playback requires the target device to be online and active in Spotify. Actions will fail if the device is unavailable.
 * **Scheduler Precision:** Scheduled jobs run based on the `SCHEDULER_INTERVAL_SECONDS`. Playback might start/stop slightly after the exact scheduled minute.
 * **Timezones & DST:** Ensure correct timezone strings (TZ database names) are used in schedules. Backend calculations use `pytz` to handle timezones and DST.
-* **Token Cache (`.spotify_token_cache.json`):** Stores the web app's authentication token, used by the scheduler. Deleting requires re-login via the web app.
-* **Databases:** `schedule.db` stores web app schedules; `spotify_history.db` stores history for the CLI tool. Back them up if needed.
+* **Token Cache (`.spotify_token_cache.json`):** Stores the web app's authentication token, used by the scheduler. Deleting requires re-login via the web app. The CLI script uses this same cache file for authentication.
+* **Databases:** `playsched.db` (or as configured) stores web app schedules, CLI history, and synced playlists/tracks. Back them up if needed.
 
 ## Contributing
 

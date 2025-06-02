@@ -11,18 +11,27 @@ import sqlite3 # For database
 import datetime # For timestamps
 import pytz # For timezone conversion
 from dotenv import load_dotenv
+import json # For JSON export
+
+# Try to import pandas, as it's needed for export; provide guidance if missing
+try:
+    import pandas as pd
+except ImportError:
+    # Pandas will be checked for specifically in the export function later
+    # to provide a more context-specific message if the user tries to export.
+    pass
+
 
 # Load environment variables from .env file
 # Ensure this is called early, before accessing os.getenv for credentials/market
 load_dotenv()
 
 # --- Configuration ---
-DB_FILE = os.getenv('HISTORY_DB_FILE',os.getenv('SCHEDULE_DB_FILE','playsched.db')) # SQLite database file name for history
+DB_FILE = os.getenv('HISTORY_DB_FILE',os.getenv('SCHEDULE_DB_FILE','playsched.db')) # SQLite database file name for history and synced playlists
 # *** Use the SAME cache path as playsched.py/scheduler.py ***
 CACHE_PATH = os.getenv('SPOTIPY_CACHE_PATH', '.spotify_token_cache.json')
 
 # Define the required scopes
-# Ensure user-read-recently-played is present for history features
 SCOPES = "user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative user-read-recently-played"
 
 # --- Database Functions ---
@@ -31,25 +40,69 @@ def create_tables_if_not_exist(conn):
     """Creates the necessary database tables if they don't already exist."""
     cursor = conn.cursor()
     try:
-        # Playback history table
+        # Playback history table (existing)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS playback_history (
-                played_at TEXT PRIMARY KEY,      -- ISO 8601 timestamp from Spotify (UTC), unique identifier
+                played_at TEXT PRIMARY KEY,
                 track_id TEXT NOT NULL,
                 track_name TEXT,
                 track_uri TEXT,
-                artist_names TEXT,               -- Comma-separated artist names
+                artist_names TEXT,
                 album_name TEXT,
-                context_type TEXT,               -- e.g., 'playlist', 'album', 'artist' (can be NULL)
-                context_uri TEXT                 -- URI of the context (can be NULL)
+                context_type TEXT,
+                context_uri TEXT
             )
         ''')
+
+        # Synced Playlists table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS synced_playlists (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                uri TEXT,
+                owner_display_name TEXT,
+                api_total_tracks INTEGER,
+                retrieved_at TEXT NOT NULL,
+                is_removed_from_spotify BOOLEAN DEFAULT 0
+            )
+        ''')
+
+        # Synced Playlist Tracks table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS synced_playlist_tracks (
+                playlist_id TEXT NOT NULL,
+                track_id TEXT NOT NULL,
+                track_name TEXT,
+                artist_names TEXT,
+                track_uri TEXT,
+                position INTEGER,
+                added_to_playlist_at_spotify TEXT,
+                last_seen_in_api_sync_at TEXT NOT NULL,
+                is_removed_from_playlist BOOLEAN DEFAULT 0,
+                PRIMARY KEY (playlist_id, track_id),
+                FOREIGN KEY (playlist_id) REFERENCES synced_playlists(id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_synced_playlist_tracks_playlist_id
+            ON synced_playlist_tracks (playlist_id);
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_synced_playlists_is_removed
+            ON synced_playlists (is_removed_from_spotify);
+        ''')
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_synced_playlist_tracks_is_removed
+            ON synced_playlist_tracks (is_removed_from_playlist);
+        ''')
+
         conn.commit()
-        print("Database tables checked/created.")
+        print("Database tables (including playback_history, synced_playlists, synced_playlist_tracks) checked/created.")
     except sqlite3.Error as e:
         print(f"Database error during table creation: {e}")
         raise
 
+# --- (update_history_db, show_recent_playlists, sync_all_playlists_and_tracks functions remain the same) ---
 def update_history_db(sp, conn):
     """Fetches recent playback history from Spotify and stores new entries in the DB."""
     print("\nFetching recent playback history from Spotify...")
@@ -174,22 +227,264 @@ def show_recent_playlists(sp, conn, market_code):
     except Exception as e:
         print(f"An unexpected error occurred in show_recent_playlists: {e}")
 
-# --- Spotify Client & Device/Playlist Finders ---
+def sync_all_playlists_and_tracks(sp, conn):
+    """
+    Fetches all user's playlists and their tracks from Spotify,
+    and upserts them into the local database. Marks items as 'removed'
+    if they are no longer found on Spotify, instead of deleting them.
+    """
+    print("\n--- Starting Full Playlist and Track Sync ---")
+    cursor = conn.cursor()
+    now_utc = datetime.datetime.utcnow().replace(tzinfo=pytz.utc)
+    now_utc_iso = now_utc.isoformat()
 
-# *** MODIFIED FUNCTION ***
+    cursor.execute("SELECT id FROM synced_playlists WHERE is_removed_from_spotify = 0")
+    db_playlist_ids_active_before_sync = {row[0] for row in cursor.fetchall()}
+    print(f"Found {len(db_playlist_ids_active_before_sync)} active playlists in DB before sync.")
+
+    print("Fetching all user playlists from Spotify...")
+    spotify_playlists_api_items = []
+    offset = 0
+    limit = 50
+    while True:
+        try:
+            results = sp.current_user_playlists(limit=limit, offset=offset)
+            if not results or not results.get('items'):
+                break
+            spotify_playlists_api_items.extend(results['items'])
+            if results['next']:
+                offset += limit
+            else:
+                break
+        except spotipy.exceptions.SpotifyException as e:
+            print(f"Spotify API error fetching user playlists: {e.msg}. Aborting sync.")
+            return
+        except Exception as e:
+            print(f"Unexpected error fetching user playlists: {e}. Aborting sync.")
+            return
+    print(f"Retrieved {len(spotify_playlists_api_items)} playlists from Spotify API.")
+
+    api_playlist_ids_this_sync = set()
+    playlists_processed_count = 0
+
+    for sp_playlist_item in spotify_playlists_api_items:
+        if not sp_playlist_item or not sp_playlist_item.get('id'):
+            print(f"Skipping a playlist item due to missing data or ID: {sp_playlist_item}")
+            continue
+
+        playlist_id = sp_playlist_item['id']
+        api_playlist_ids_this_sync.add(playlist_id)
+        playlist_name = sp_playlist_item.get('name', 'Unnamed Playlist')
+        playlist_uri = sp_playlist_item.get('uri')
+        owner_name = sp_playlist_item.get('owner', {}).get('display_name', 'N/A')
+        api_total_tracks = sp_playlist_item.get('tracks', {}).get('total', 0)
+
+        print(f"\nProcessing playlist: '{playlist_name}' (ID: {playlist_id})")
+
+        try:
+            cursor.execute("""
+                INSERT INTO synced_playlists (id, name, uri, owner_display_name, api_total_tracks, retrieved_at, is_removed_from_spotify)
+                VALUES (?, ?, ?, ?, ?, ?, 0)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    uri = excluded.uri,
+                    owner_display_name = excluded.owner_display_name,
+                    api_total_tracks = excluded.api_total_tracks,
+                    retrieved_at = excluded.retrieved_at,
+                    is_removed_from_spotify = 0
+            """, (playlist_id, playlist_name, playlist_uri, owner_name, api_total_tracks, now_utc_iso))
+        except sqlite3.Error as e:
+            print(f"  DB error upserting playlist '{playlist_name}': {e}")
+            continue
+
+        try:
+            cursor.execute("""
+                UPDATE synced_playlist_tracks
+                SET is_removed_from_playlist = 1
+                WHERE playlist_id = ?
+            """, (playlist_id,))
+        except sqlite3.Error as e:
+            print(f"  DB error marking old tracks for playlist '{playlist_name}': {e}")
+            continue
+
+        print(f"  Fetching tracks for playlist '{playlist_name}'...")
+        spotify_playlist_track_items = []
+        track_offset = 0
+        track_limit = 100
+        current_position_in_playlist = 0
+        while True:
+            try:
+                fields_param = "items(added_at,track(id,name,uri,artists(name))),next"
+                track_results = sp.playlist_items(playlist_id, limit=track_limit, offset=track_offset, fields=fields_param)
+
+                if not track_results or not track_results.get('items'):
+                    break
+
+                for item in track_results['items']:
+                    if item and item.get('track') and item['track'].get('id'):
+                        item['current_position_in_playlist'] = current_position_in_playlist
+                        spotify_playlist_track_items.append(item)
+                        current_position_in_playlist += 1
+                if track_results['next']:
+                    track_offset += track_limit
+                else:
+                    break
+            except spotipy.exceptions.SpotifyException as e:
+                print(f"  Spotify API error fetching tracks for playlist '{playlist_name}': {e.msg}. Skipping tracks for this playlist.")
+                spotify_playlist_track_items = []
+                break
+            except Exception as e:
+                print(f"  Unexpected error fetching tracks for playlist '{playlist_name}': {e}. Skipping tracks for this playlist.")
+                spotify_playlist_track_items = []
+                break
+        print(f"  Retrieved {len(spotify_playlist_track_items)} valid tracks from Spotify API for playlist '{playlist_name}'.")
+
+        tracks_synced_count_for_this_playlist = 0
+        for item_data in spotify_playlist_track_items:
+            track_info = item_data['track']
+            track_id = track_info['id']
+            track_name = track_info.get('name', 'N/A')
+            track_uri = track_info.get('uri')
+            artist_names = ", ".join([a['name'] for a in track_info.get('artists', []) if a.get('name')])
+            added_at_spotify_ts = item_data.get('added_at')
+            position = item_data['current_position_in_playlist']
+
+            try:
+                cursor.execute("""
+                    INSERT INTO synced_playlist_tracks (
+                        playlist_id, track_id, track_name, artist_names, track_uri,
+                        position, added_to_playlist_at_spotify, last_seen_in_api_sync_at, is_removed_from_playlist
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    ON CONFLICT(playlist_id, track_id) DO UPDATE SET
+                        track_name = excluded.track_name,
+                        artist_names = excluded.artist_names,
+                        track_uri = excluded.track_uri,
+                        position = excluded.position,
+                        added_to_playlist_at_spotify = excluded.added_to_playlist_at_spotify,
+                        last_seen_in_api_sync_at = excluded.last_seen_in_api_sync_at,
+                        is_removed_from_playlist = 0
+                """, (
+                    playlist_id, track_id, track_name, artist_names, track_uri,
+                    position, added_at_spotify_ts, now_utc_iso
+                ))
+                tracks_synced_count_for_this_playlist += 1
+            except sqlite3.Error as e:
+                print(f"  DB error upserting track ID {track_id} for playlist '{playlist_name}': {e}")
+        print(f"  Upserted {tracks_synced_count_for_this_playlist} tracks for playlist '{playlist_name}' into DB.")
+        playlists_processed_count += 1
+
+    print(f"\nProcessed {playlists_processed_count} playlists from Spotify API.")
+
+    removed_playlist_count = 0
+    playlists_to_mark_as_globally_removed = db_playlist_ids_active_before_sync - api_playlist_ids_this_sync
+
+    if playlists_to_mark_as_globally_removed:
+        print(f"\nFound {len(playlists_to_mark_as_globally_removed)} playlists in DB that are no longer in Spotify. Marking them as removed...")
+        for removed_playlist_id in playlists_to_mark_as_globally_removed:
+            try:
+                cursor.execute("""
+                    UPDATE synced_playlists
+                    SET is_removed_from_spotify = 1, retrieved_at = ?
+                    WHERE id = ?
+                """, (now_utc_iso, removed_playlist_id))
+                cursor.execute("""
+                    UPDATE synced_playlist_tracks
+                    SET is_removed_from_playlist = 1, last_seen_in_api_sync_at = ?
+                    WHERE playlist_id = ?
+                """, (now_utc_iso, removed_playlist_id))
+                removed_playlist_count +=1
+                print(f"  Marked playlist ID {removed_playlist_id} and its tracks as removed.")
+            except sqlite3.Error as e:
+                print(f"  DB error marking playlist ID {removed_playlist_id} (and its tracks) as removed: {e}")
+        print(f"Marked {removed_playlist_count} playlists (and their tracks) as removed because they are no longer on Spotify.")
+
+    try:
+        conn.commit()
+        print("\n--- Full Playlist and Track Sync COMPLETED ---")
+    except sqlite3.Error as e:
+        print(f"Database commit error at the end of sync: {e}")
+        print("WARNING: Some changes might not have been saved.")
+
+# --- NEW EXPORT FUNCTION ---
+def export_data_to_file(conn, filename):
+    """Exports synced playlists and tracks from the database to the specified file."""
+    print(f"\nAttempting to export data to '{filename}'...")
+    
+    try:
+        # Ensure pandas is available (and openpyxl for .xlsx)
+        pd_module = __import__('pandas')
+    except ImportError:
+        print("\nError: The 'pandas' library is required for the export functionality.")
+        print("Please install it by running: pip install pandas")
+        if filename.lower().endswith(".xlsx"):
+            print("For Excel export, 'openpyxl' is also required: pip install openpyxl")
+        return
+
+    base_filename, extension = os.path.splitext(filename)
+    extension = extension.lower()
+
+    try:
+        # Fetch data from synced_playlists
+        playlists_df = pd_module.read_sql_query("SELECT * FROM synced_playlists", conn)
+        # Fetch data from synced_playlist_tracks
+        tracks_df = pd_module.read_sql_query("SELECT * FROM synced_playlist_tracks", conn)
+
+        # Convert boolean (0/1) fields to True/False for better readability in export
+        if 'is_removed_from_spotify' in playlists_df.columns:
+            playlists_df['is_removed_from_spotify'] = playlists_df['is_removed_from_spotify'].astype(bool)
+        if 'is_removed_from_playlist' in tracks_df.columns:
+            tracks_df['is_removed_from_playlist'] = tracks_df['is_removed_from_playlist'].astype(bool)
+
+        if extension == ".xlsx":
+            try:
+                __import__('openpyxl')
+            except ImportError:
+                print("\nError: The 'openpyxl' library is required for Excel (.xlsx) export.")
+                print("Please install it by running: pip install openpyxl")
+                return
+            with pd_module.ExcelWriter(filename, engine='openpyxl') as writer:
+                playlists_df.to_excel(writer, sheet_name='Playlists', index=False)
+                tracks_df.to_excel(writer, sheet_name='Tracks', index=False)
+            print(f"Data successfully exported to Excel file: {filename}")
+        elif extension == ".csv":
+            playlist_csv_filename = f"{base_filename}_playlists.csv"
+            track_csv_filename = f"{base_filename}_tracks.csv"
+            playlists_df.to_csv(playlist_csv_filename, index=False, encoding='utf-8')
+            tracks_df.to_csv(track_csv_filename, index=False, encoding='utf-8')
+            print(f"Data successfully exported to CSV files: {playlist_csv_filename} and {track_csv_filename}")
+        elif extension == ".json":
+            data_to_export = {
+                "playlists": playlists_df.to_dict(orient='records'),
+                "tracks": tracks_df.to_dict(orient='records')
+            }
+            with open(filename, 'w', encoding='utf-8') as f:
+                json.dump(data_to_export, f, ensure_ascii=False, indent=4)
+            print(f"Data successfully exported to JSON file: {filename}")
+        else:
+            print(f"Error: Unsupported file extension '{extension}'. Please use .xlsx, .csv, or .json.")
+            return
+
+    except pd_module.io.sql.DatabaseError as e:
+        print(f"Database error during export: {e}.")
+        print("This might happen if the tables 'synced_playlists' or 'synced_playlist_tracks' do not exist.")
+        print("Please run the --sync-playlists command first to populate these tables.")
+    except Exception as e:
+        print(f"An unexpected error occurred during export: {e}")
+
+
+# --- (Spotify Client & Device/Playlist Finders remain the same) ---
 def get_spotify_client():
     """Authenticates and returns a Spotipy client instance, using shared cache."""
     try:
         client_id = os.getenv("SPOTIPY_CLIENT_ID")
         client_secret = os.getenv("SPOTIPY_CLIENT_SECRET")
-        redirect_uri = os.getenv("SPOTIPY_REDIRECT_URI") # Still needed for potential browser flow
+        redirect_uri = os.getenv("SPOTIPY_REDIRECT_URI")
 
         if not all([client_id, client_secret, redirect_uri]):
              print("\nError: SPOTIPY_CLIENT_ID, SPOTIPY_CLIENT_SECRET, and SPOTIPY_REDIRECT_URI")
              print("       must be set in your environment or .env file.")
              sys.exit(1)
 
-        # Ensure cache path exists for logging/debugging
         print(f"Using token cache path: {CACHE_PATH}")
         if not os.path.exists(CACHE_PATH):
              print(f"Cache file {CACHE_PATH} does not exist. Attempting first-time auth via browser.")
@@ -197,34 +492,29 @@ def get_spotify_client():
 
         print("Attempting authentication (will use cache first)...")
         auth_manager = SpotifyOAuth(
-            client_id=client_id,             # Pass explicitly
-            client_secret=client_secret,     # Pass explicitly
-            redirect_uri=redirect_uri,       # Pass explicitly (for browser fallback)
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
             scope=SCOPES,
-            cache_path=CACHE_PATH,           # *** Use the shared cache file ***
-            open_browser=True                # Allow browser for first time / if cache fails
+            cache_path=CACHE_PATH,
+            open_browser=True
         )
 
-        # This will try cache first, then browser flow if needed/possible
         sp = spotipy.Spotify(auth_manager=auth_manager)
-
-        # Verify authentication by making a simple call
         user = sp.current_user()
         print(f"Authentication successful for user: {user.get('display_name', user.get('id'))}")
         print("(Likely using cached token if previously logged in via web app)")
         return sp
 
     except Exception as e:
-        # Catch potential errors during cache read or auth flow
         print(f"\nError during authentication/token retrieval: {e}")
         print("\nPlease ensure:")
         print(" 1. You have logged in successfully via the Web Application at least once.")
         print(" 2. Your Spotify credentials and Redirect URI environment variables are correct.")
         print(f" 3. The cache file '{CACHE_PATH}' exists and is accessible (if logged in before).")
         print(" 4. If a browser window opened, the auth flow may have failed (check Redirect URI in Spotify Dashboard matches .env EXACTLY, including https://).")
-        sys.exit(1) # Exit if authentication fails
+        sys.exit(1)
 
-# --- (list_devices, list_playlists, find_device, _list_devices_internal, find_playlist functions remain the same as user provided) ---
 def list_devices(sp):
     """Lists available Spotify playback devices."""
     print("\nFetching available devices...")
@@ -246,29 +536,28 @@ def list_devices(sp):
                 print(f"- Name: {device['name']}")
                 print(f"  Type: {device['type']}{active_status}{volume}")
                 print(f"  ID:   {device['id']}")
-                print("-" * 10) # Separator
+                print("-" * 10)
     except Exception as e:
         print(f"Error fetching devices: {e}")
 
 def list_playlists(sp):
-    """Lists the current user's playlists."""
-    print("\nFetching your playlists...")
+    """Lists the current user's playlists (from Spotify API directly)."""
+    print("\nFetching your playlists from Spotify API...")
     all_playlists = []
     try:
         offset = 0
-        limit = 50 # Max limit per request
+        limit = 50
         while True:
             results = sp.current_user_playlists(limit=limit, offset=offset)
             if not results or not results.get('items'):
-                break # No more playlists
+                break
             all_playlists.extend(results['items'])
-            # Check if there's a next page URL provided by Spotify
             if results['next']:
-                offset += limit # Prepare for the next page offset
+                offset += limit
             else:
-                break # No more pages
+                break
 
-        print(f"--- Your Playlists ({len(all_playlists)} found) ---")
+        print(f"--- Your Playlists ({len(all_playlists)} found on Spotify) ---")
         if not all_playlists:
              print("(None found)")
         else:
@@ -281,7 +570,7 @@ def list_playlists(sp):
                  print(f"  Tracks: {playlist['tracks']['total']}")
                  print(f"  ID:   {playlist['id']}")
                  print(f"  URI:  {playlist['uri']}")
-                 print("-" * 10) # Separator
+                 print("-" * 10)
 
     except Exception as e:
         print(f"Error fetching playlists: {e}")
@@ -299,14 +588,12 @@ def find_device(sp, device_name_query):
         available_devices = devices['devices']
         found_device = None
 
-        # Try exact match first (case-insensitive)
         for device in available_devices:
             if device_name_query.lower() == device['name'].lower():
                 found_device = device
                 print(f"Found exact match: {found_device['name']}")
                 break
 
-        # If no exact match, try partial match (case-insensitive)
         if not found_device:
             partial_matches = []
             for device in available_devices:
@@ -338,8 +625,7 @@ def find_device(sp, device_name_query):
         else:
             print(f"\nError: Device containing '{device_name_query}' not found among active devices.")
             print("Available active devices listed below:")
-            # Call list_devices directly here to show options immediately
-            _list_devices_internal(available_devices) # Use a helper to avoid redundant API call
+            _list_devices_internal(available_devices)
             return None
     except Exception as e:
         print(f"Error searching for devices: {e}")
@@ -361,19 +647,16 @@ def _list_devices_internal(available_devices):
 
 def find_playlist(sp, playlist_query):
     """Finds a playlist by name or URI/ID."""
-    # Check if it's a Spotify URI or ID (logic remains the same)
     if playlist_query.startswith("spotify:playlist:") or len(playlist_query) == 22:
-        # ... (keep the existing URI/ID checking logic here) ...
         playlist_uri = playlist_query
         if not playlist_uri.startswith("spotify:playlist:"):
              playlist_uri = f"spotify:playlist:{playlist_query}"
         print(f"\nVerifying playlist by URI/ID: {playlist_uri}")
         try:
             playlist = sp.playlist(playlist_uri, fields='name,uri,owner.display_name')
-            # Add safe gets here too for consistency
             owner_display = playlist.get('owner', {}).get('display_name', 'Unknown Owner')
             print(f"Found playlist: {playlist.get('name','Unnamed Playlist')} (Owner: {owner_display})")
-            return playlist.get('uri') # Return None if URI is missing
+            return playlist.get('uri')
         except spotipy.exceptions.SpotifyException as e:
             print(f"Error accessing playlist by URI/ID: {e.msg}")
             return None
@@ -381,58 +664,40 @@ def find_playlist(sp, playlist_query):
             print(f"An unexpected error occurred when fetching playlist by URI/ID: {e}")
             return None
 
-    # If not URI/ID, search by name
     print(f"\nSearching for playlist matching '{playlist_query}'...")
     try:
         results = sp.search(q=playlist_query, type='playlist', limit=15)
-
-        # Check if results structure is valid before accessing items
         if not results or not results.get('playlists') or not isinstance(results['playlists'].get('items'), list):
              print(f"Error: Unexpected response structure from Spotify search for '{playlist_query}'.")
              return None
-
         playlists = results['playlists']['items']
-
-        if not playlists: # Check if the items list is empty
+        if not playlists:
             print(f"Error: No playlist found matching '{playlist_query}'.")
             return None
-
-        # Filter out potential None items from the list first
         valid_playlists = [p for p in playlists if p is not None]
-
         if not valid_playlists:
              print(f"Error: No valid playlist data found matching '{playlist_query}' after filtering.")
              return None
-
         if len(valid_playlists) == 1:
             selected_playlist = valid_playlists[0]
             owner_display = selected_playlist.get('owner', {}).get('display_name', 'Unknown Owner')
             print(f"Found unique playlist: {selected_playlist.get('name','Unnamed Playlist')} (Owner: {owner_display})")
-            return selected_playlist.get('uri') # Return None if URI missing
+            return selected_playlist.get('uri')
         else:
-            # Handle multiple matches using the filtered list
             print("\nMultiple playlists found. Please choose one:")
             for i, item in enumerate(valid_playlists):
-                # Now 'item' is guaranteed not to be None
                 owner_name = "Unknown Owner"
                 owner_info = item.get('owner')
-                # Check owner_info is a dictionary before calling get
                 if owner_info and isinstance(owner_info, dict):
                     owner_name = owner_info.get('display_name', owner_name)
-
                 playlist_name = item.get('name', 'Unnamed Playlist')
-                # Display using 1-based index for user
                 print(f"{i + 1}: {playlist_name} (Owner: {owner_name})")
-
-            # Input loop using the length of the valid list
             while True:
                 try:
                     choice_str = input(f"Enter number (1-{len(valid_playlists)}): ")
-                    # Convert user input (1-based) to 0-based index
                     choice = int(choice_str) - 1
                     if 0 <= choice < len(valid_playlists):
                         selected_playlist = valid_playlists[choice]
-                        # Final check for URI before returning
                         selected_uri = selected_playlist.get('uri')
                         if selected_uri:
                              print(f"Selected: {selected_playlist.get('name', 'Unnamed Playlist')}")
@@ -450,64 +715,96 @@ def find_playlist(sp, playlist_query):
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    # Set up argument parser
+    print("Note: For export functionality (--export-data), 'pandas' and 'openpyxl' (for Excel) libraries are required.")
+    print("You can install them using: pip install pandas openpyxl\n")
+
     parser = argparse.ArgumentParser(
-        description="Control Spotify playback, list items, or manage playback history.",
+        description="Control Spotify playback, list items, manage history/playlists, or export synced data.",
         formatter_class=argparse.RawTextHelpFormatter
         )
 
-    # ... (argument parsing and validation logic remains the same) ...
     action_group = parser.add_mutually_exclusive_group()
     action_group.add_argument("--list-devices", action="store_true", help="List available playback devices.")
-    action_group.add_argument("--list-playlists", action="store_true", help="List your playlists.")
-    action_group.add_argument("--update-history", action="store_true", help="Fetch recent plays from Spotify and add new entries to the database.")
-    action_group.add_argument("--recent-playlists", action="store_true", help="Show recently played playlists based on stored history (local time).")
-    parser.add_argument("--device", type=str, help="Name (or partial name) of the device to play on.\n(Requires --playlist)")
-    parser.add_argument("--playlist", type=str, help="Name, ID, or URI of the playlist to play.\n(Requires --device)")
-    args = parser.parse_args()
-    if (args.device or args.playlist) and not (args.device and args.playlist):
-        parser.error("--device and --playlist must be used together for playback.")
-    is_playback_action = args.device and args.playlist
-    is_list_or_db_action = args.list_devices or args.list_playlists or args.update_history or args.recent_playlists
-    if is_playback_action and is_list_or_db_action:
-         parser.error("Playback arguments (--device, --playlist) cannot be used with action flags like --list-*, --update-history, etc.")
+    action_group.add_argument("--list-playlists", action="store_true", help="List your playlists (direct from Spotify API).")
+    action_group.add_argument("--update-history", action="store_true", help="Fetch recent plays and add to DB.")
+    action_group.add_argument("--recent-playlists", action="store_true", help="Show recently played playlists from DB.")
+    action_group.add_argument("--sync-playlists", action="store_true",
+                              help="Sync all user playlists and tracks to local DB.")
 
+    parser.add_argument("--device", type=str, help="Name of the device to play on (requires --playlist).")
+    parser.add_argument("--playlist", type=str, help="Name, ID, or URI of the playlist to play (requires --device).")
+    parser.add_argument("--export-data", type=str, metavar="FILENAME",
+                        help="Export synced playlists and tracks to the specified file. \n"
+                             "File type (xlsx, csv, json) determined by filename extension. \n"
+                             "For CSV, two files: '<FILENAME>_playlists.csv' & '<FILENAME>_tracks.csv'.")
+    args = parser.parse_args()
+
+    # Determine primary intended action category
+    is_playback_action = bool(args.device and args.playlist) # <--- CORRECTED LINE
+    is_action_flag_present = any([
+        args.list_devices, args.list_playlists, args.update_history,
+        args.recent_playlists, args.sync_playlists
+    ])
+    is_export_action = args.export_data is not None
+
+    # Mutual Exclusivity Checks for major action categories
+    num_major_actions = sum([is_playback_action, is_action_flag_present, is_export_action])
+
+    if num_major_actions > 1:
+        parser.error("Error: Please specify only one major action category: \n"
+                     "  1. Playback (using --device and --playlist together).\n"
+                     "  2. An action flag (--list-devices, --sync-playlists, etc.).\n"
+                     "  3. Data export (using --export-data FILENAME).\n"
+                     "These categories cannot be combined.")
+    
+    if (args.device or args.playlist) and not is_playback_action:
+        parser.error("Error: --device and --playlist must be used together for playback.")
 
     market_code = os.getenv('SPOTIPY_MARKET')
     if market_code: print(f"Using market code '{market_code}' from environment.")
-    else: print("Market code not set in environment (SPOTIPY_MARKET), API calls will use default behavior.")
+    else: print("Market code not set (SPOTIPY_MARKET), API calls use default behavior.")
 
-    needs_auth = is_list_or_db_action or is_playback_action
-    needs_db = args.update_history or args.recent_playlists
+    needs_auth = is_action_flag_present or is_playback_action # Export doesn't need auth for Spotify API
+    needs_db = args.update_history or args.recent_playlists or args.sync_playlists or is_export_action
 
     sp = None
     conn = None
-    action_taken = False
+    action_taken_or_attempted = False # To track if any primary action block was entered
 
     try:
         if needs_auth:
-            sp = get_spotify_client() # This now uses the cache path
-            if not sp: sys.exit(1) # get_spotify_client now handles exit on failure
+            sp = get_spotify_client()
+            if not sp: sys.exit(1)
 
         if needs_db:
             print(f"Connecting to database: {DB_FILE}")
             conn = sqlite3.connect(DB_FILE)
             create_tables_if_not_exist(conn)
 
-        # --- Action Handling (remains the same) ---
-        if args.list_devices:
-            list_devices(sp); action_taken = True
-        elif args.list_playlists:
-            list_playlists(sp); action_taken = True
-        elif args.update_history:
-            update_history_db(sp, conn); action_taken = True
-        elif args.recent_playlists:
-            show_recent_playlists(sp, conn, market_code); action_taken = True
-        elif args.device and args.playlist:
-            action_taken = True
+        # --- Action Handling ---
+        if is_export_action:
+            action_taken_or_attempted = True
+            if conn:
+                export_data_to_file(conn, args.export_data)
+            else:
+                # This case should ideally be prevented by needs_db logic or earlier checks
+                print("Error: Database connection not available for export. Please ensure DB_FILE is configured.")
+        
+        elif is_action_flag_present:
+            action_taken_or_attempted = True
+            # Dispatch based on which flag from the action_group is True
+            if args.list_devices: list_devices(sp)
+            elif args.list_playlists: list_playlists(sp)
+            elif args.update_history: update_history_db(sp, conn)
+            elif args.recent_playlists: show_recent_playlists(sp, conn, market_code)
+            elif args.sync_playlists: sync_all_playlists_and_tracks(sp, conn)
+        
+        elif is_playback_action:
+            action_taken_or_attempted = True
             device_id = find_device(sp, args.device)
             playlist_uri = None
             if device_id: playlist_uri = find_playlist(sp, args.playlist)
+
             if device_id and playlist_uri:
                 try:
                     print(f"\nAttempting to start playlist on device '{args.device}'...")
@@ -519,9 +816,15 @@ if __name__ == "__main__":
                 except Exception as e: print(f"\nAn unexpected error occurred during playback: {e}")
             else: print("\nPlayback aborted: device or playlist not identified.")
 
-        if not action_taken and not is_playback_action:
+        # If no major action category was specified by the user
+        if num_major_actions == 0: # Implies no relevant args were given
              print("\nNo action specified.")
              parser.print_help()
+        # If a major action was specified, but the internal logic didn't mark action_taken_or_attempted
+        # (this scenario should be rare given the current structure but acts as a fallback)
+        elif num_major_actions > 0 and not action_taken_or_attempted:
+            print("\nAn action was specified, but it could not be dispatched. Please check arguments.")
+            parser.print_help()
 
     finally:
         if conn:
